@@ -8,11 +8,11 @@ execute:
   message: false
 
 book:
-  title: "YOUR PROJECT TITLE"
+  title: "MOVIE VISUAL ANALYTICS"
   author:
-    - AUTHOR1 (UNI1)
-    - AUTHOR2 (UNI2)
-  repo-url: https://github.com/YOUR_GITHUB_ACCOUNT/REPO_NAME
+    - HAASITA PINNEPU(UNI1)
+    - RITIKA CHATTERJEE (UNI2)
+  repo-url: https://ritxz21.github.io/movie-visual-analytics-EDAV/
   date: today
   page-footer:
     right: |
