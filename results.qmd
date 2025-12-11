@@ -1,9 +1,250 @@
 # Results: Lights, Camera, Data!
+First, we perform some Exploratory Data Analysis on our IMDB Dataset. 
 
-Buckle up (or should we say, grab your remote and blanket) because we're about to unpack what the IMDb data is really telling us about the film world before, during, and after COVID.
+To understand the Quality of movies over the decades, we consider the criteria of Average Ratings by decade. We also observe the number of movies released every decade, as that effects the average rating as well.
 
-Think of this as the director's cut commentary track full of insights, a few plot twists, and zero spoilers for actual movies.
+```{r}
+library(patchwork)
 
+decade_ratings <- movies_clean |>
+  group_by(release_decade) |>
+  summarise(
+    mean_rating = mean(imdb_rating),
+    se = sd(imdb_rating) / sqrt(n()),
+    n = n(),
+    median_rating = median(imdb_rating)
+  ) |>
+  filter(n >= 100)  # Only decades with enough data
+
+p_rating <- ggplot(decade_ratings, aes(x = release_decade, group = 1)) +
+  geom_ribbon(aes(ymin = mean_rating - 1.96 * se,
+                  ymax = mean_rating + 1.96 * se),
+              alpha = 0.15, fill = "#2c7fb8") +
+  geom_line(aes(y = mean_rating), color = "#2c7fb8", linewidth = 0.9) +
+  geom_point(aes(y = mean_rating), color = "#2c7fb8", size = 2.7) +
+  geom_hline(yintercept = mean(movies_clean$imdb_rating),
+             linetype = "dashed", color = "gray40", alpha = 0.7) +
+  annotate("text", x = 5,
+           y = mean(movies_clean$imdb_rating) + 0.05,
+           label = "Overall Average",
+           size = 3, colour = "gray30") +
+  labs(
+    title = "Movie Quality Evolution: The Golden Age and Beyond",
+    subtitle = "Average IMDb ratings with 95% confidence intervals",
+    x = NULL,
+    y = "Average IMDb Rating"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    plot.title.position = "plot"
+  )
+
+p_volume <- ggplot(decade_ratings, aes(x = release_decade, y = n)) +
+  geom_col(alpha = 0.9) +
+  labs(
+    subtitle = "Number of films released per decade",
+    x = "Release Decade",
+    y = "Films released"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.subtitle = element_text(margin = margin(b = 5))
+  )
+
+p_rating / p_volume + 
+  plot_layout(heights = c(2, 1)) +
+  plot_annotation(
+    caption = paste("Data includes", nrow(movies_clean), "rated films")
+  )
+
+```
+
+Interestingly, despite the surge in production during the 2010s, the decade shows a noticeable decline in average ratings, indicating that volume may dilute decade-level quality estimates.
+
+Because average ratings are strongly affected by the explosion of low-profile releases in recent decades, especially the 2010s, we next want to compare the top-performing films in each decade (e.g., top 100 or top 1000) to obtain a clearer picture of cinematic quality over time.
+
+```{r}
+valid_decades <- decade_ratings$release_decade
+
+top_decade_ratings <- movies_clean |>
+  filter(release_decade %in% decade_ratings$release_decade) |>  
+  group_by(release_decade) |>
+  slice_max(order_by = imdb_rating, n = 1000, with_ties = FALSE) |> 
+  summarise(
+    mean_top1000 = mean(imdb_rating),
+    median_top1000 = median(imdb_rating),
+    n_top = n()
+  ) |>
+  arrange(release_decade)
+
+ggplot(top_decade_ratings, aes(x = release_decade, y = mean_top1000, group = 1)) +
+  geom_line(color = "#1f78b4", linewidth = 1.1) +
+  geom_point(size = 3, color = "#1f78b4") +
+  labs(
+    title = "Peak Film Quality Over Time",
+    subtitle = "Mean IMDb rating of the Top 1000 highest-rated films in each decade",
+    x = "Release Decade",
+    y = "Mean IMDb Rating (Top 1000 Films)",
+    caption = paste("Top 1000 defined within each decade")
+  ) +
+  ylim(6, 9.2) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title.position = "plot",
+    plot.caption = element_text(size = 8, color = "gray30")
+  )
+
+```
+The average rating of the top 1000 films keeps increasing over time, but that’s not really a fair comparison, because newer movies get many more ratings than older ones, IMDb simply wasn’t around back then. To get a clearer picture of movie quality without this bias, we’ll instead look at pre-COVID, during-COVID, and post-COVID films later on and explore how the pandemic affected movie releases.
+
+Next, we look at the top genres. We start by seeing which genres have the most movies, since the genres that get made the most are usually the ones considered most popular?
+
+```{r}
+genre_counts <- movies_clean |> unnest(genres_list) |> filter(!is.na(genres_list)) |> count(genres_list, sort = TRUE)
+
+genres_by_decade <- movies_clean |>
+  filter(release_decade %in% valid_decades) |>   
+  unnest(genres_list) |>
+  filter(!is.na(genres_list)) |>
+  count(release_decade, genres_list, sort = TRUE)
+
+top_genres <- genre_counts |>
+  slice_max(n, n = 10) |>       # choose top 10 genres overall
+  pull(genres_list)
+
+genres_by_decade_filtered <- genres_by_decade |>
+  filter(genres_list %in% top_genres)
+
+genre_totals <- genres_by_decade_filtered |>
+  group_by(genres_list) |>
+  summarise(total = sum(n)) |>
+  arrange(desc(total))
+
+genres_by_decade_filtered <- genres_by_decade_filtered |>
+  mutate(genres_list = factor(genres_list, levels = genre_totals$genres_list))
+
+ggplot(genres_by_decade_filtered,
+       aes(x = release_decade, y = n, fill = genres_list)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ genres_list, ncol = 4) +
+  labs(
+    title = "Genre Popularity Over Time",
+    subtitle = "Top 10 genres across decades, ordered by overall frequency",
+    x = "Release Decade",
+    y = "Count"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title.position = "plot"
+  )
+```
+
+We can obeserve that Drama Genre movies are made the most followed by Comedy and Romance.
+
+Next what if we try to get the most popular genre by rating, will Drama still be the most popular category, to avoid the decline in ratings by different number of films in each genre let's compare average ratings.
+
+```{r}
+genre_ratings_by_decade <- movies_clean |>
+  filter(release_decade %in% valid_decades) |>
+  unnest(genres_list) |>
+  filter(genres_list %in% top_genres) |>
+  group_by(release_decade, genres_list) |>
+  summarise(
+    mean_rating = mean(imdb_rating),
+    count = n(),
+    .groups = "drop"
+  )
+
+genre_totals <- genres_by_decade_filtered |>
+  group_by(genres_list) |>
+  summarise(total = sum(n)) |>
+  arrange(desc(total))
+
+genre_ratings_by_decade <- genre_ratings_by_decade |>
+  mutate(genres_list = factor(genres_list, levels = genre_totals$genres_list))
+
+# Compute overall mean rating per genre and use it to order the factor
+genre_order <- genre_ratings_by_decade |>
+  group_by(genres_list) |>
+  summarise(overall_mean = mean(mean_rating, na.rm = TRUE), .groups = "drop") |>
+  arrange(desc(overall_mean)) |>
+  pull(genres_list)
+
+genre_ratings_by_decade <- genre_ratings_by_decade |>
+  mutate(genres_list = factor(genres_list, levels = genre_order))
+
+ggplot(genre_ratings_by_decade,
+       aes(x = release_decade, y = mean_rating,
+           colour = genres_list, group = genres_list)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Genre Quality Over Time",
+    subtitle = "Average IMDb ratings for top genres across valid decades\nLegend ordered by overall average rating",
+    x = "Release Decade",
+    y = "Average IMDb Rating"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title.position = "plot"
+  )
+```
+
+Interestingly, Documentaries clearly stand out as the highest-rated genre over the decades, even though Drama dominates in terms of production volume. Most other genres show a gradual decline in ratings over the decades, with Horror dropping the most sharply. 
+
+Next, we want to understand the relationship between Runtime and Rating, faceted by genre.
+```{r}
+valid_decades <- decade_ratings$release_decade
+
+top_genres <- genre_counts |>
+  slice_max(n, n = 10) |>
+  pull(genres_list)
+
+movies_genre <- movies_clean |>
+  filter(release_decade %in% valid_decades,
+         runtimeMinutes <= 240) |>
+  unnest(genres_list) |>
+  filter(genres_list %in% top_genres)
+
+genre_runtime_order <- movies_genre |>
+  group_by(genres_list) |>
+  summarise(avg_runtime = mean(runtimeMinutes, na.rm = TRUE)) |>
+  arrange(avg_runtime) |>
+  pull(genres_list)
+
+movies_genre <- movies_genre |>
+  mutate(genres_list = factor(genres_list, levels = genre_runtime_order))
+
+ggplot(movies_genre, aes(x = runtimeMinutes, y = imdb_rating)) +
+  geom_hex(bins = 20, alpha = 0.85) +
+  geom_smooth(color = "red", size = 0.8, se = FALSE) +
+  facet_wrap(~ genres_list, scales = "free_y") +
+  annotate("rect", xmin = 90, xmax = 120, ymin = -Inf, ymax = Inf,
+           alpha = 0.10, fill = "darkgreen") +
+  labs(
+    title = "Runtime vs IMDb Rating by Genre",
+    subtitle = "Facets ordered by average runtime",
+    x = "Runtime (minutes)",
+    y = "IMDb Rating",
+    fill = "# Films"
+  ) +
+  scale_fill_gradient(low = "#f0f0f0", high = "#2171b5") +
+  theme_minimal(base_size = 11) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    plot.title.position = "plot"
+  )
+```
+
+It’s interesting that Action, Romance, and Drama films tend to have the longest runtimes, whereas Documentaries and Horror movies are generally much shorter. We also see that longer documentaries consistently earn higher ratings, while genres like Horror, Mystery, Thriller, and Action show a noticeable dip in ratings for films around the 60-minute mark.
+
+Moving on, let's unpack what the IMDb data is telling us about the film world before, during, and after COVID.
 ```{r}
 # Define COVID periods
 movies_clean <- movies_clean |>
@@ -51,6 +292,11 @@ has_us <- akas |>
 ```
 
 ```{r}
+movies_clean
+```
+
+
+```{r}
 movies_clean <- movies_clean |>
   left_join(has_india, by = c("tconst" = "titleId")) |>
   left_join(has_us, by = c("tconst" = "titleId")) |>
@@ -74,63 +320,85 @@ We measured engagement via average IMDb votes (proxy for viewership interest) an
 
 ```{r}
 # Plot: Average Votes by COVID Period (Engagement Proxy)
-engagement_plot <- movies_clean |>
+
+engagement_summary <- movies_clean |>
+  filter(!is.na(period)) |>
   group_by(period) |>
   summarise(
-    avg_votes = mean(imdb_votes, na.rm = TRUE),
-    movie_count = n()
+    avg_votes   = mean(imdb_votes, na.rm = TRUE),
+    movie_count = n(),
+    .groups = "drop"
   ) |>
-  ggplot(aes(x = period, y = avg_votes)) +
-  geom_col(fill = "#555555") +  
-  labs(
-    title = "Average IMDb Votes per Movie by COVID Period",
-    subtitle = "Higher votes indicate greater audience engagement",
-    x = "Period",
-    y = "Average Votes"
-  ) +
-  theme_minimal()
+  # order periods: pre-covid -> during covid -> post-covid
+  mutate(
+    period = factor(
+      period,
+      levels = c("Pre-COVID", "During COVID", "Post-COVID")
+    )
+  )
 
-ggplotly(engagement_plot)
+ggplot(engagement_summary,
+                          aes(x = period, y = avg_votes)) +
+  geom_col(fill = "#555555") +
+  geom_text(aes(label = paste0("n = ", movie_count)),
+            vjust = -0.4, size = 3) +
+  labs(
+    title    = "Average IMDb Votes per Movie by COVID Period",
+    subtitle = "Bar height: average votes (engagement) • Labels: number of movies",
+    x        = "Period",
+    y        = "Average IMDb Votes"
+  ) +
+  scale_y_continuous(labels = scales::comma) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title.position = "plot"
+  )
 ```
 
--   **Pre-COVID**: \~7,500 votes on average , people were actively watching and rating like it was their job.
-
-<!-- -->
-
--   **During COVID**: Dropped to \~4,500 , theaters closed, new releases dried up, and many of us were busy learning how to make sourdough.
-
-<!-- -->
-
--   **Post-COVID**: Settled around \~4,200 ,lower than pre-pandemic, but still healthy. We’re more selective now, or perhaps there’s a touch of rating fatigue after years of non-stop streaming.
+Movie engagement drops sharply during COVID, likely due to theatre closures and reduced global releases. Even after COVID, average votes remain well below pre-pandemic levels, suggesting a continued shift toward streaming and series consumption or something else.
 
 ```{r}
-# Plot: Movie Releases by COVID Period 
-release_count_plot <- movies_clean |>
-  count(period) |>
-  ggplot(aes(x = period, y = n)) +
-  geom_col(fill = "#555555") +  # Neutral gray
-  labs(
-    title = "Number of Movie Releases by COVID Period",
-    subtitle = "Shows production shifts due to pandemic and streaming boom",
-    x = "Period",
-    y = "Count"
-  ) +
-  theme_minimal()
-
-ggplotly(release_count_plot)
+movies_clean
 ```
 
--   **Pre-COVID**: Over 150,000 movies in the dataset , the industry was firing on all cylinders.
 
-<!-- -->
+```{r}
+# English vs Non-English engagement over time
+language_trends <- movies_clean |>
+  filter(!is.na(period), !is.na(original_language)) |>
+  mutate(is_english = original_language == "en") |>
+  group_by(period, is_english) |>
+  summarise(
+    avg_votes = mean(imdb_votes),
+    median_votes = median(imdb_votes),
+    n_films = n(),
+    .groups = "drop"
+  ) |>
+  mutate(language = if_else(is_english, "English", "Non-English"))
 
--   **During COVID**: Barely 20,000 , an 85% collapse. The pandemic hit the pause button hard.
+ggplot(language_trends, aes(x = period, y = avg_votes, 
+                            group = language, color = language)) +
+  geom_line(size = 1.5) +
+  geom_point(size = 4) +
+  geom_text(aes(label = scales::comma(round(avg_votes))),
+            vjust = -1, size = 3.5, fontface = "bold") +
+  scale_color_manual(values = c("English" = "#2c7fb8", 
+                                "Non-English" = "#d95f02"),
+                    name = "Language") +
+  scale_y_continuous(labels = scales::comma_format()) +
+  labs(
+    title = "The Great Engagement Divide: English vs Non-English Films",
+    subtitle = "English films dominate engagement, but gap narrowing post-COVID",
+    x = "COVID Period",
+    y = "Average IMDb Votes per Film",
+    caption = paste("English films:", 
+                   sum(language_trends$is_english[language_trends$language == "English"]), 
+                   "| Non-English:", 
+                   sum(!language_trends$is_english[language_trends$language == "Non-English"]))
+  ) +
+  theme_minimal(base_size = 14)
+```
 
-<!-- -->
-
--   **Post-COVID**: Climbing back to \~30,000 and still rising. Not yet at 2019 levels, but the recovery is real, thanks largely to streaming platforms picking up projects that would otherwise have been shelved.
-
-Takeaway: The audience never left , we just moved from cinema seats to couches. Engagement dipped during the crisis but has stabilized at a respectable level.!
 
 ```{r}
 # Plot: Average Ratings by Release in India vs. US 
