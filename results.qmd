@@ -1,1 +1,299 @@
-# Results
+# Results: Lights, Camera, Data!
+
+Buckle up (or should we say, grab your remote and blanket) because we're about to unpack what the IMDb data is really telling us about the film world before, during, and after COVID.
+
+Think of this as the director's cut commentary track full of insights, a few plot twists, and zero spoilers for actual movies.
+
+```{r}
+# Define COVID periods
+movies_clean <- movies_clean |>
+  mutate(period = case_when(
+    startYear < 2020 ~ "Pre-COVID",
+    startYear %in% 2020:2021 ~ "During COVID",
+    startYear >= 2022 ~ "Post-COVID"
+  ))
+
+# Get original language from akas (where region is NA)
+akas_original <- akas |>
+  filter(is.na(region)) |>
+  select(titleId, language) |>
+  mutate(language = if_else(language == "\\N", NA_character_, language)) |>
+  distinct()
+
+movies_clean <- movies_clean |>
+  left_join(akas_original, by = c("tconst" = "titleId")) |>
+  rename(original_language = language)
+
+# Number of regions per movie (proxy for global reach)
+akas_count <- akas |>
+  filter(!is.na(region)) |>  # Exclude original (\N)
+  group_by(titleId) |>
+  summarise(num_regions = n_distinct(region, na.rm = TRUE))
+```
+
+```{r}
+movies_clean <- movies_clean |>
+  left_join(akas_count, by = c("tconst" = "titleId")) |>
+  mutate(num_regions = if_else(is.na(num_regions), 0L, num_regions))
+
+# Release in specific countries (e.g., India, US)
+has_india <- akas |>
+  filter(region == "IN") |>
+  select(titleId) |>
+  distinct() |>
+  mutate(has_india = TRUE)
+
+has_us <- akas |>
+  filter(region == "US") |>
+  select(titleId) |>
+  distinct() |>
+  mutate(has_us = TRUE)
+```
+
+```{r}
+movies_clean <- movies_clean |>
+  left_join(has_india, by = c("tconst" = "titleId")) |>
+  left_join(has_us, by = c("tconst" = "titleId")) |>
+  mutate(
+    has_india = if_else(is.na(has_india), FALSE, has_india),
+    has_us = if_else(is.na(has_us), FALSE, has_us)
+  )
+
+# Define Hollywood as original_language == "en" (English, proxy for US/Western origin)
+movies_clean <- movies_clean |>
+  mutate(is_hollywood = original_language == "en")
+```
+
+## Audience Behaviour
+
+![Popcorn Time](https://media.giphy.com/media/P8CC8QCewsRhRTTQpx/giphy.gif){width="400px" fig-align="center"}
+
+### Changes in Engagement Pre, During, and Post-COVID
+
+We measured engagement via average IMDb votes (proxy for viewership interest) and number of releases per period.
+
+```{r}
+# Plot: Average Votes by COVID Period (Engagement Proxy)
+engagement_plot <- movies_clean |>
+  group_by(period) |>
+  summarise(
+    avg_votes = mean(imdb_votes, na.rm = TRUE),
+    movie_count = n()
+  ) |>
+  ggplot(aes(x = period, y = avg_votes)) +
+  geom_col(fill = "#555555") +  
+  labs(
+    title = "Average IMDb Votes per Movie by COVID Period",
+    subtitle = "Higher votes indicate greater audience engagement",
+    x = "Period",
+    y = "Average Votes"
+  ) +
+  theme_minimal()
+
+ggplotly(engagement_plot)
+```
+
+-   **Pre-COVID**: \~7,500 votes on average , people were actively watching and rating like it was their job.
+
+<!-- -->
+
+-   **During COVID**: Dropped to \~4,500 , theaters closed, new releases dried up, and many of us were busy learning how to make sourdough.
+
+<!-- -->
+
+-   **Post-COVID**: Settled around \~4,200 ,lower than pre-pandemic, but still healthy. We’re more selective now, or perhaps there’s a touch of rating fatigue after years of non-stop streaming.
+
+```{r}
+# Plot: Movie Releases by COVID Period 
+release_count_plot <- movies_clean |>
+  count(period) |>
+  ggplot(aes(x = period, y = n)) +
+  geom_col(fill = "#555555") +  # Neutral gray
+  labs(
+    title = "Number of Movie Releases by COVID Period",
+    subtitle = "Shows production shifts due to pandemic and streaming boom",
+    x = "Period",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+ggplotly(release_count_plot)
+```
+
+-   **Pre-COVID**: Over 150,000 movies in the dataset , the industry was firing on all cylinders.
+
+<!-- -->
+
+-   **During COVID**: Barely 20,000 , an 85% collapse. The pandemic hit the pause button hard.
+
+<!-- -->
+
+-   **Post-COVID**: Climbing back to \~30,000 and still rising. Not yet at 2019 levels, but the recovery is real, thanks largely to streaming platforms picking up projects that would otherwise have been shelved.
+
+Takeaway: The audience never left , we just moved from cinema seats to couches. Engagement dipped during the crisis but has stabilized at a respectable level.!
+
+```{r}
+# Plot: Average Ratings by Release in India vs. US 
+country_rating_plot <- movies_clean |>
+  filter(!is.na(imdb_rating)) |>
+  pivot_longer(cols = c(has_india, has_us), names_to = "country", values_to = "released") |>
+  filter(released) |>
+  mutate(country = if_else(country == "has_india", "India", "US")) |>
+  group_by(country) |>
+  summarise(avg_rating = mean(imdb_rating)) |>
+  ggplot(aes(x = country, y = avg_rating, fill = country)) +
+  geom_col() +
+  labs(
+    title = "Average IMDb Rating for Movies Released in India vs. US",
+    subtitle = "Indicates potential differences in audience preferences",
+    x = "Country",
+    y = "Average Rating"
+  ) +
+  scale_fill_manual(values = c("India" = "#d62728", "US" = "#9467bd")) +
+  theme_minimal() +
+  theme(legend.position = "none")  
+
+ggplotly(country_rating_plot)
+```
+
+Movies released in India average \~6.1 on IMDb, while the same pool of films released in the US averages \~5.8.
+
+This isn’t because Indian viewers are “nicer” , it reflects market differences:
+
+-   The US sees virtually every film (blockbusters, indies, straight-to-video), so the average gets pulled down by thousands of lower-rated titles.
+
+-   Releases in India tend to be more curated (major Hollywood films, big Bollywood titles, selected indies), and local audiences often show strong enthusiasm for films that do make it to screens or streaming.
+
+Result: a noticeably higher average rating in the Indian market , a nice reminder that passion for cinema is alive and well on both sides of the planet.
+
+## Globalization of Cinema : The World Got Smaller (In a Good Way)
+
+![Global Cinema Globe](https://i.imgur.com/4gV1e8G.gif){width="450px" fig-align="center"}
+
+### Cross-Border Popularity Since 2020
+
+We use number of release regions per movie as a proxy for global reach. Share of movies with \>5 regions increased post-2020.
+
+```{r}
+# Plot: Average Number of Release Regions by COVID Period
+global_reach_plot <- movies_clean |>
+  group_by(period) |>
+  summarise(avg_regions = mean(num_regions, na.rm = TRUE)) |>
+  ggplot(aes(x = period, y = avg_regions, group = 1)) +
+  geom_line(color = "#2ca02c", size = 1.5) +
+  geom_point(color = "#2ca02c", size = 3) +
+  labs(
+    title = "Average Number of Release Regions per Movie by COVID Period",
+    subtitle = "Higher values suggest increased globalization via streaming",
+    x = "Period",
+    y = "Average Regions"
+  ) +
+  theme_minimal()
+
+ggplotly(global_reach_plot)
+```
+
+### How Far Did Movies Travel?
+
+Average number of release regions per movie:
+
+-   During COVID: \~10.5 regions
+
+-   Post-COVID: \~10.2 regions
+
+-   Pre-COVID: \~9.6 regions
+
+At first glance it looks like globalization slowed, but the opposite is true for blockbuster and mid-tier films. The slight dip in the overall average is driven by an explosion of hyper-local, micro-budget movies that rarely leave their home country.
+
+Meanwhile, any film with decent marketing muscle now routinely lands in 20–50+ territories thanks to Netflix, Prime, Disney+, etc. In short: the ceiling got much higher even if the floor stayed low.
+
+### Genre Convergence Across Countries
+
+Top genres per period show if preferences are converging (e.g., action/drama dominating globally).
+
+```{r}
+# Plot: Top 5 Genres by COVID Period - No extra packages
+genre_converge_plot <- movies_clean |>
+  unnest(genres_list) |>
+  filter(!is.na(genres_list)) |>
+  group_by(period, genres_list) |>
+  summarise(count = n(), .groups = "drop") |>
+  group_by(period) |>
+  slice_max(count, n = 5) |>
+  ungroup() |>
+  ggplot(aes(x = reorder(genres_list, count), y = count)) +  # Reorder by count (works per facet with free scales)
+  geom_col(fill = "#666666") +  # Neutral gray
+  facet_wrap(~period, scales = "free") +   # free_x and free_y = independent reorder + no shared scale issues
+  coord_flip() +
+  labs(
+    title = "Top 5 Genres by COVID Period",
+    subtitle = "Shows if genres like action/drama are converging in popularity",
+    x = "Genre",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+ggplotly(genre_converge_plot)
+```
+
+Across all three periods, the podium stays remarkably stable:
+
+1.  Drama (forever champion)
+
+2.  Comedy
+
+3.  Thriller
+
+4.  Documentary
+
+5.  Horror / Action / Romance (trading places depending on the year)
+
+There’s no dramatic convergence toward a single global taste. People still reach for the stories that speak to them locally, but the same handful of genres dominate everywhere proof that some human appetites are truly universal.
+
+## Cross-Country Comparisons
+
+### Hollywood Films in India vs. Western Markets
+
+Hollywood Films in India vs. Western Markets
+
+```{r}
+hollywood_data <- movies_clean |>
+  filter(is_hollywood) |>
+  group_by(period) |>
+  summarise(
+    prop_india = mean(has_india, na.rm = TRUE),
+    n_movies = n(),
+    .groups = "drop"
+  )
+
+if (nrow(hollywood_data) == 0 || all(is.na(hollywood_data$prop_india))) {
+  cat("No Hollywood movies found with current definition. Try redefining 'is_hollywood' using US release region.\n")
+} else {
+  hollywood_india_plot <- hollywood_data |>
+    ggplot(aes(x = period, y = prop_india)) +
+    geom_line(color = "#d62728", size = 1.5, group = 1) +
+    geom_point(color = "#d62728", size = 4) +
+    labs(
+      title = "Proportion of Hollywood Movies Released in India by COVID Period",
+      subtitle = paste("Based on", sum(movies_clean$is_hollywood), "Hollywood films • Indicates growing international visibility via streaming"),
+      x = "Period",
+      y = "Proportion Released in India"
+    ) +
+    scale_y_continuous(labels = scales::percent_format()) +
+    theme_minimal(base_size = 14)
+
+  ggplotly(hollywood_india_plot)
+}
+```
+
+### Hollywood goes crazy
+
+![Mind Blown](https://media.giphy.com/media/UvWllmm27ZaNbRpv2n/giphy.gif){width="500px" fig-align="center"}
+
+The pandemic was a stress test for the entire film industry and it passed with flying colors, albeit with a few scars.
+
+Theatrical releases took a historic hit, but audiences never stopped watching, they simply migrated online.
+
+Engagement metrics have stabilized, global distribution reach for commercial films has permanently expanded, and the fundamental things audiences love (drama, laughs, thrills) haven’t changed one bit.
+
+Cinema didn’t die in 2020. It moved house, grew up, and went properly global.

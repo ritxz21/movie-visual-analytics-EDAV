@@ -3,6 +3,7 @@
 ## Description
 
 ## Missing value analysis
+
 ```{r}
 install.packages(c(
   "tidyverse", "data.table", "lubridate", "janitor",
@@ -14,13 +15,14 @@ install.packages(c(
 ```{r}
 install.packages("janitor")
 ```
+
 ```{r}
 install.packages('R.utils')
 ```
+
 ```{r}
 install.packages('skimr')
 ```
-
 
 ```{r}
 library(tidyverse)
@@ -123,7 +125,7 @@ movies <- basics |>
 
 ```
 
-Join Ratings 
+Join Ratings
 
 ```{r}
 movies <- movies |>
@@ -149,6 +151,7 @@ movies <- movies |>
 ```
 
 Inspect missing data
+
 ```{r}
 missing_summary <- movies |> 
   summarise(across(everything(), ~sum(is.na(.)))) |> 
@@ -159,6 +162,7 @@ missing_summary
 ```
 
 Handling Missing Values
+
 ```{r}
 movies_clean <- movies |>
   # Remove movies missing release year (very small fraction)
@@ -184,6 +188,7 @@ clean_missing_summary
 ```
 
 Ratingd Over Decade
+
 ```{r}
 # ---- Plot: Average IMDb Rating Over Decades ----
 movies_clean |>
@@ -202,6 +207,7 @@ movies_clean |>
 ```
 
 Number of Movies Released per Decade
+
 ```{r}
 # ---- Plot: Movie Count by Decade ----
 movies_clean |>
@@ -218,6 +224,7 @@ movies_clean |>
 ```
 
 Rating vs Runtime (with smoothing)
+
 ```{r}
 # ---- Plot: Rating vs Runtime ----
 movies_clean |>
@@ -233,8 +240,8 @@ movies_clean |>
 
 ```
 
-
 Top Genres by Count
+
 ```{r}
 # ---- Unnest genres ----
 genre_counts <- movies_clean |>
@@ -258,6 +265,7 @@ genre_counts |>
 ```
 
 Genre Vs Average Rating
+
 ```{r}
 genre_rating <- movies_clean |>
   unnest(genres_list) |>
