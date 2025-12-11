@@ -1,1 +1,11 @@
 # Introduction
+
+This project analyzes IMDB movie data downloaded directly from the public dataset.
+
+We explore:
+  - Trends over time 
+  - Ratings and popularity
+  - Genre patterns
+  - How runtime relates to rating
+  
+Navigate using the sidebar to see the full analysis.

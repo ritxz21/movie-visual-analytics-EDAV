@@ -3,3 +3,296 @@
 ## Description
 
 ## Missing value analysis
+```{r}
+install.packages(c(
+  "tidyverse", "data.table", "lubridate", "janitor",
+  "stringr", "arrow", "scales", "glue",
+  "readr", "forcats", "plotly", "patchwork"
+))
+```
+
+```{r}
+install.packages("janitor")
+```
+```{r}
+install.packages('R.utils')
+```
+```{r}
+install.packages('skimr')
+```
+
+
+```{r}
+library(tidyverse)
+library(data.table)
+library(lubridate)
+library(janitor)
+library(stringr)
+library(scales)
+library(glue)
+library(readr)
+library(forcats)
+library(plotly)
+library(R.utils)
+library(skimr)
+```
+
+```{r}
+download_imdb <- TRUE
+imdb_dir <- "data/imdb"
+dir.create(imdb_dir, recursive = TRUE, showWarnings = FALSE)
+
+imdb_base <- "https://datasets.imdbws.com"
+
+files <- c(
+"title.basics.tsv.gz",
+"title.ratings.tsv.gz",
+"title.akas.tsv.gz"
+)
+if(download_imdb){
+for(f in files){
+url <- file.path(imdb_base, f)
+dest <- file.path(imdb_dir, f)
+if(!file.exists(dest)){
+message("Downloading ", f)
+download.file(url, dest, mode = "wb")
+} else {
+message(f, " already exists; skipping download.")
+}
+}
+}
+
+```
+
+```{r}
+basics <- fread(
+  file.path(imdb_dir, "title.basics.tsv.gz"),
+  na.strings = "\\N",
+  sep = "\t",
+  quote = "",
+  showProgress = FALSE
+)
+
+ratings <- fread(
+  file.path(imdb_dir, "title.ratings.tsv.gz"),
+  na.strings = "\\N",
+  sep = "\t",
+  quote = "",
+  showProgress = FALSE
+)
+
+akas <- fread(
+  file.path(imdb_dir, "title.akas.tsv.gz"),
+  na.strings = "\\N",
+  sep = "\t",
+  quote = "",
+  showProgress = FALSE
+)
+
+```
+
+```{r}
+glimpse(basics)
+glimpse(ratings)
+glimpse(akas)
+
+```
+
+Keep only movies (titleType == "movie" and isAdult == 0).
+
+Split genres into list columns.
+
+Convert years to numeric and create release_decade.
+
+Join IMDb ratings.
+
+```{r}
+movies <- basics |>
+  filter(titleType == "movie") |>
+  mutate(
+    startYear = as.integer(startYear),
+    endYear = as.integer(endYear),
+    runtimeMinutes = as.integer(runtimeMinutes),
+    isAdult = as.integer(isAdult)
+  ) |>
+  select(
+    tconst, primaryTitle, originalTitle,
+    startYear, runtimeMinutes, genres, isAdult
+  ) |>
+  filter(isAdult == 0)
+
+```
+
+Join Ratings 
+
+```{r}
+movies <- movies |>
+left_join(ratings, by = c("tconst" = "tconst")) |>
+rename(imdb_rating = averageRating, imdb_votes = numVotes)
+```
+
+Parse genres into List
+
+```{r}
+movies <- movies |>
+  mutate(
+    genres_list = if_else(
+      is.na(genres),
+      list(NA_character_),
+      str_split(genres, ",\\s*")  
+    ),
+    release_decade = case_when(
+      !is.na(startYear) ~ paste0(floor(startYear/10) * 10, "s"),
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+Inspect missing data
+```{r}
+missing_summary <- movies |> 
+  summarise(across(everything(), ~sum(is.na(.)))) |> 
+  pivot_longer(everything(), names_to = "column", values_to = "missing")
+
+missing_summary
+
+```
+
+Handling Missing Values
+```{r}
+movies_clean <- movies |>
+  # Remove movies missing release year (very small fraction)
+  filter(!is.na(startYear)) |>
+  # Remove movies with no ratings (not useful for analysis)
+  filter(!is.na(imdb_rating), !is.na(imdb_votes)) |>
+  # Remove movies with runtime 0 or unrealistic (< 10 min)
+  filter(!is.na(runtimeMinutes), runtimeMinutes >= 10) |>
+  # Keep only movies with at least 50 votes (reduces noise)
+  filter(imdb_votes >= 50)
+```
+
+```{r}
+# ---- Final Cleaned Dataset Summary ----
+
+skimr::skim(movies_clean)
+
+clean_missing_summary <- movies_clean |> 
+  summarise(across(everything(), ~sum(is.na(.)))) |> 
+  pivot_longer(everything(), names_to = "column", values_to = "missing")
+
+clean_missing_summary
+```
+
+Ratingd Over Decade
+```{r}
+# ---- Plot: Average IMDb Rating Over Decades ----
+movies_clean |>
+  group_by(release_decade) |>
+  summarise(mean_rating = mean(imdb_rating)) |>
+  ggplot(aes(x = release_decade, y = mean_rating, group = 1)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Average IMDb Rating by Release Decade",
+    x = "Decade",
+    y = "Avg Rating"
+  ) +
+  theme_minimal()
+
+```
+
+Number of Movies Released per Decade
+```{r}
+# ---- Plot: Movie Count by Decade ----
+movies_clean |>
+  count(release_decade) |>
+  ggplot(aes(x = release_decade, y = n)) +
+  geom_col() +
+  labs(
+    title = "Number of Movies Released by Decade",
+    x = "Decade",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+```
+
+Rating vs Runtime (with smoothing)
+```{r}
+# ---- Plot: Rating vs Runtime ----
+movies_clean |>
+  ggplot(aes(x = runtimeMinutes, y = imdb_rating)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  labs(
+    title = "Relationship Between Movie Runtime and IMDb Rating",
+    x = "Runtime (min)",
+    y = "IMDb Rating"
+  ) +
+  theme_minimal()
+
+```
+
+
+Top Genres by Count
+```{r}
+# ---- Unnest genres ----
+genre_counts <- movies_clean |>
+  unnest(genres_list) |>
+  filter(!is.na(genres_list)) |>
+  count(genres_list, sort = TRUE)
+
+# ---- Plot ----
+genre_counts |> 
+  slice_max(n, n = 15) |>
+  ggplot(aes(x = reorder(genres_list, n), y = n)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Most Common IMDb Movie Genres",
+    x = "Genre",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+```
+
+Genre Vs Average Rating
+```{r}
+genre_rating <- movies_clean |>
+  unnest(genres_list) |>
+  filter(!is.na(genres_list)) |>
+  group_by(genres_list) |>
+  summarise(
+    mean_rating = mean(imdb_rating),
+    count = n()
+  ) |>
+  filter(count >= 200)   # avoid tiny-sample genres
+
+genre_rating |>
+  ggplot(aes(x = reorder(genres_list, mean_rating), y = mean_rating)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Average IMDb Rating by Genre (≥ 200 movies)",
+    x = "Genre",
+    y = "Average Rating"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+```
+
+```{r}
+```
+
+```{r}
+```
+
+```{r}
+```
+
+```{r}
+```
