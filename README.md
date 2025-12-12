@@ -1,3 +1,3 @@
-🎬 Movie Analytics: Exploring Global Film Trends with IMDb Data
+## 🎬 Movie Analytics: Exploring Global Film Trends with IMDb Data
 
 This project analyzes over 170,000 films from the IMDb Non-Commercial Dataset to understand how movie production, quality, genres, audience engagement, and global reach have changed over time. A key focus is the impact of the COVID-19 pandemic on the film industry. Using data cleaning, visualization, and exploratory analysis, we study trends in movie ratings, genre preferences, regional differences in production, how far films travel globally, and how audience engagement has shifted. The goal is to uncover how filmmaking and movie consumption have evolved while highlighting patterns that remained surprisingly stable.
