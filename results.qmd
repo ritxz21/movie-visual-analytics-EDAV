@@ -1,11 +1,136 @@
 # Results: Lights, Camera, Data!
-First, we perform some Exploratory Data Analysis on our IMDB Dataset. 
+
+Set-Up
+
+```{r}
+library(tidyverse)
+library(data.table)
+library(lubridate)
+library(janitor)
+library(stringr)
+library(scales)
+library(glue)
+library(readr)
+library(forcats)
+library(plotly)
+library(R.utils)
+library(skimr)
+library(patchwork)
+library(countrycode)
+library(tidytext)
+library(ggalluvial)
+```
+
+```{r}
+download_imdb <- TRUE
+imdb_dir <- "data/imdb"
+dir.create(imdb_dir, recursive = TRUE, showWarnings = FALSE)
+
+imdb_base <- "https://datasets.imdbws.com"
+
+files <- c(
+"title.basics.tsv.gz",
+"title.ratings.tsv.gz",
+"title.akas.tsv.gz"
+)
+if(download_imdb){
+for(f in files){
+url <- file.path(imdb_base, f)
+dest <- file.path(imdb_dir, f)
+if(!file.exists(dest)){
+message("Downloading ", f)
+download.file(url, dest, mode = "wb")
+} else {
+message(f, " already exists; skipping download.")
+}
+}
+}
+
+```
+
+```{r}
+basics <- fread(
+  file.path(imdb_dir, "title.basics.tsv.gz"),
+  na.strings = "\\N",
+  sep = "\t",
+  quote = "",
+  showProgress = FALSE
+)
+
+ratings <- fread(
+  file.path(imdb_dir, "title.ratings.tsv.gz"),
+  na.strings = "\\N",
+  sep = "\t",
+  quote = "",
+  showProgress = FALSE
+)
+
+akas <- fread(
+  file.path(imdb_dir, "title.akas.tsv.gz"),
+  na.strings = "\\N",
+  sep = "\t",
+  quote = "",
+  showProgress = FALSE
+)
+
+```
+
+```{r}
+movies <- basics |>
+  filter(titleType == "movie") |>
+  mutate(
+    startYear = as.integer(startYear),
+    endYear = as.integer(endYear),
+    runtimeMinutes = as.integer(runtimeMinutes),
+    isAdult = as.integer(isAdult)
+  ) |>
+  select(
+    tconst, primaryTitle, originalTitle,
+    startYear, runtimeMinutes, genres, isAdult
+  ) |>
+  filter(isAdult == 0)
+
+```
+
+```{r}
+movies <- movies |>
+left_join(ratings, by = c("tconst" = "tconst")) |>
+rename(imdb_rating = averageRating, imdb_votes = numVotes)
+```
+
+```{r}
+movies <- movies |>
+  mutate(
+    genres_list = if_else(
+      is.na(genres),
+      list(NA_character_),
+      str_split(genres, ",\\s*")  
+    ),
+    release_decade = case_when(
+      !is.na(startYear) ~ paste0(floor(startYear/10) * 10, "s"),
+      TRUE ~ NA_character_
+    )
+  )
+```
+
+```{r}
+# Handle missing Data
+movies_clean <- movies |>
+  # Remove movies missing release year (very small fraction)
+  filter(!is.na(startYear)) |>
+  # Remove movies with no ratings (not useful for analysis)
+  filter(!is.na(imdb_rating), !is.na(imdb_votes)) |>
+  # Remove movies with runtime 0 or unrealistic (< 10 min)
+  filter(!is.na(runtimeMinutes), runtimeMinutes >= 10) |>
+  # Keep only movies with at least 50 votes (reduces noise)
+  filter(imdb_votes >= 50)
+```
+
+### First, we perform some Exploratory Data Analysis on our IMDB Dataset. 
 
 To understand the Quality of movies over the decades, we consider the criteria of Average Ratings by decade. We also observe the number of movies released every decade, as that effects the average rating as well.
 
 ```{r}
-library(patchwork)
-
 decade_ratings <- movies_clean |>
   group_by(release_decade) |>
   summarise(
@@ -244,7 +369,7 @@ ggplot(movies_genre, aes(x = runtimeMinutes, y = imdb_rating)) +
 
 It’s interesting that Action, Romance, and Drama films tend to have the longest runtimes, whereas Documentaries and Horror movies are generally much shorter. We also see that longer documentaries consistently earn higher ratings, while genres like Horror, Mystery, Thriller, and Action show a noticeable dip in ratings for films around the 60-minute mark.
 
-Moving on, let's unpack what the IMDb data is telling us about the film world before, during, and after COVID.
+### Moving on, let's unpack what the IMDb data is telling us about the film world before, during, and after COVID.
 ```{r}
 # Define COVID periods
 movies_clean <- movies_clean |>
@@ -253,68 +378,7 @@ movies_clean <- movies_clean |>
     startYear %in% 2020:2021 ~ "During COVID",
     startYear >= 2022 ~ "Post-COVID"
   ))
-
-# Get original language from akas (where region is NA)
-akas_original <- akas |>
-  filter(is.na(region)) |>
-  select(titleId, language) |>
-  mutate(language = if_else(language == "\\N", NA_character_, language)) |>
-  distinct()
-
-movies_clean <- movies_clean |>
-  left_join(akas_original, by = c("tconst" = "titleId")) |>
-  rename(original_language = language)
-
-# Number of regions per movie (proxy for global reach)
-akas_count <- akas |>
-  filter(!is.na(region)) |>  # Exclude original (\N)
-  group_by(titleId) |>
-  summarise(num_regions = n_distinct(region, na.rm = TRUE))
 ```
-
-```{r}
-movies_clean <- movies_clean |>
-  left_join(akas_count, by = c("tconst" = "titleId")) |>
-  mutate(num_regions = if_else(is.na(num_regions), 0L, num_regions))
-
-# Release in specific countries (e.g., India, US)
-has_india <- akas |>
-  filter(region == "IN") |>
-  select(titleId) |>
-  distinct() |>
-  mutate(has_india = TRUE)
-
-has_us <- akas |>
-  filter(region == "US") |>
-  select(titleId) |>
-  distinct() |>
-  mutate(has_us = TRUE)
-```
-
-```{r}
-movies_clean
-```
-
-
-```{r}
-movies_clean <- movies_clean |>
-  left_join(has_india, by = c("tconst" = "titleId")) |>
-  left_join(has_us, by = c("tconst" = "titleId")) |>
-  mutate(
-    has_india = if_else(is.na(has_india), FALSE, has_india),
-    has_us = if_else(is.na(has_us), FALSE, has_us)
-  )
-
-# Define Hollywood as original_language == "en" (English, proxy for US/Western origin)
-movies_clean <- movies_clean |>
-  mutate(is_hollywood = original_language == "en")
-```
-
-## Audience Behaviour
-
-![Popcorn Time](https://media.giphy.com/media/P8CC8QCewsRhRTTQpx/giphy.gif){width="400px" fig-align="center"}
-
-### Changes in Engagement Pre, During, and Post-COVID
 
 We measured engagement via average IMDb votes (proxy for viewership interest) and number of releases per period.
 
@@ -354,214 +418,203 @@ ggplot(engagement_summary,
     plot.title.position = "plot"
   )
 ```
-
 Movie engagement drops sharply during COVID, likely due to theatre closures and reduced global releases. Even after COVID, average votes remain well below pre-pandemic levels, suggesting a continued shift toward streaming and series consumption or something else.
 
 ```{r}
-movies_clean
+movies_with_regions <- movies_clean |>
+  filter(!is.na(period)) |>
+  select(tconst, period, imdb_votes, imdb_rating, startYear) |>
+  inner_join(
+    akas |> 
+      filter(!is.na(region), region != "\\N") |> 
+      select(titleId, region),
+    by = c("tconst" = "titleId")
+  )
+
+# Get top 10 regions overall
+top_regions <- movies_with_regions |>
+  count(region, sort = TRUE) |>
+  slice_head(n = 10) |>
+  pull(region)
+
+# Get region counts by COVID period
+region_by_period <- movies_with_regions |>
+  filter(region %in% top_regions) |>
+  count(period, region) |>
+  mutate(country_name = countrycode(region, "iso2c", "country.name",
+                                    custom_match = c("XWW" = "Worldwide"))) |>
+  # Fix period ordering
+  mutate(period = factor(period, 
+                        levels = c("Pre-COVID", "During COVID", "Post-COVID")))
+
+region_by_period <- region_by_period |>
+  mutate(country_name = countrycode(region, "iso2c", "country.name",
+                                    custom_match = c("XWW" = "Worldwide")))
 ```
 
+```{r}
+region_by_period <- region_by_period |>
+  mutate(
+    period = factor(period, levels = c("Pre-COVID", "During COVID", "Post-COVID"))
+  )
+
+region_by_period2 <- region_by_period |>
+  mutate(
+    period = factor(period,
+                    levels = c("Pre-COVID", "During COVID", "Post-COVID"))
+  ) |>
+  group_by(period) |>
+  arrange(desc(n), .by_group = TRUE) |>
+  mutate(rank = row_number()) |>
+  ungroup()
+
+ggplot(region_by_period2,
+       aes(x = rank, y = n)) +
+  geom_col(width = 0.8, fill = "#636363") +
+  # label each bar with the ISO2 region code
+  geom_text(aes(label = region, y = 0),
+            vjust = 2, angle = 45, size = 3) +
+  facet_wrap(~ period, scales = "free_y") +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Top Release Markets Across COVID Periods",
+    subtitle = "Sorted by releases within each period",
+    x = "Region",
+    y = "Number of Releases"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x  = element_blank(),   # hide numeric rank labels (1,2,3…)
+    axis.ticks.x = element_blank(),
+    strip.text   = element_text(face = "bold")
+  )
+```
+
+India showed a major rise in influence during COVID, jumping to the third-largest film-releasing region and sustaining that position post-COVID. Overall release volumes, however, dropped sharply during the pandemic and have not returned to pre-COVID levels.Great Britain took a hit post-covid while USA and Canada maintained their top positions.
 
 ```{r}
-# English vs Non-English engagement over time
-language_trends <- movies_clean |>
-  filter(!is.na(period), !is.na(original_language)) |>
-  mutate(is_english = original_language == "en") |>
-  group_by(period, is_english) |>
+rating_region_period <- movies_with_regions |>
+  filter(region %in% top_regions) |>
+  group_by(period, region) |>
   summarise(
-    avg_votes = mean(imdb_votes),
-    median_votes = median(imdb_votes),
-    n_films = n(),
+    avg_rating = mean(imdb_rating, na.rm = TRUE),
     .groups = "drop"
   ) |>
-  mutate(language = if_else(is_english, "English", "Non-English"))
+  mutate(
+    period = factor(period, levels = c("Pre-COVID", "During COVID", "Post-COVID")),
+    region_reordered = reorder_within(region, -avg_rating, period)
+  )
 
-ggplot(language_trends, aes(x = period, y = avg_votes, 
-                            group = language, color = language)) +
-  geom_line(size = 1.5) +
-  geom_point(size = 4) +
-  geom_text(aes(label = scales::comma(round(avg_votes))),
-            vjust = -1, size = 3.5, fontface = "bold") +
-  scale_color_manual(values = c("English" = "#2c7fb8", 
-                                "Non-English" = "#d95f02"),
-                    name = "Language") +
-  scale_y_continuous(labels = scales::comma_format()) +
+ggplot(rating_region_period,
+       aes(x = region_reordered, y = avg_rating)) +
+  geom_col(fill = "grey40") +
+  facet_wrap(~ period, scales = "free_x") +
+  scale_x_reordered() +
   labs(
-    title = "The Great Engagement Divide: English vs Non-English Films",
-    subtitle = "English films dominate engagement, but gap narrowing post-COVID",
-    x = "COVID Period",
-    y = "Average IMDb Votes per Film",
-    caption = paste("English films:", 
-                   sum(language_trends$is_english[language_trends$language == "English"]), 
-                   "| Non-English:", 
-                   sum(!language_trends$is_english[language_trends$language == "Non-English"]))
+    title = "Average IMDb Ratings by Region Across COVID Periods",
+    subtitle = "Regions ordered by average rating within each period",
+    x = "Region",
+    y = "Average IMDb Rating"
   ) +
-  theme_minimal(base_size = 14)
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(face = "bold")
+  )
 ```
 
+Interestingly, India sees a noticeable dip in average ratings during COVID but rebounds strongly afterward, becoming the highest-rated region post-COVID. Japan, on the other hand, maintains high ratings through COVID but experiences a slight decline in the post-COVID period.
 
-```{r}
-# Plot: Average Ratings by Release in India vs. US 
-country_rating_plot <- movies_clean |>
-  filter(!is.na(imdb_rating)) |>
-  pivot_longer(cols = c(has_india, has_us), names_to = "country", values_to = "released") |>
-  filter(released) |>
-  mutate(country = if_else(country == "has_india", "India", "US")) |>
-  group_by(country) |>
-  summarise(avg_rating = mean(imdb_rating)) |>
-  ggplot(aes(x = country, y = avg_rating, fill = country)) +
-  geom_col() +
-  labs(
-    title = "Average IMDb Rating for Movies Released in India vs. US",
-    subtitle = "Indicates potential differences in audience preferences",
-    x = "Country",
-    y = "Average Rating"
-  ) +
-  scale_fill_manual(values = c("India" = "#d62728", "US" = "#9467bd")) +
-  theme_minimal() +
-  theme(legend.position = "none")  
-
-ggplotly(country_rating_plot)
-```
-
-Movies released in India average \~6.1 on IMDb, while the same pool of films released in the US averages \~5.8.
-
-This isn’t because Indian viewers are “nicer” , it reflects market differences:
-
--   The US sees virtually every film (blockbusters, indies, straight-to-video), so the average gets pulled down by thousands of lower-rated titles.
-
--   Releases in India tend to be more curated (major Hollywood films, big Bollywood titles, selected indies), and local audiences often show strong enthusiasm for films that do make it to screens or streaming.
-
-Result: a noticeably higher average rating in the Indian market , a nice reminder that passion for cinema is alive and well on both sides of the planet.
-
-## Globalization of Cinema : The World Got Smaller (In a Good Way)
-
-![Global Cinema Globe](https://i.imgur.com/4gV1e8G.gif){width="450px" fig-align="center"}
-
-### Cross-Border Popularity Since 2020
-
-We use number of release regions per movie as a proxy for global reach. Share of movies with \>5 regions increased post-2020.
+Next, we want to understand if the pandemic had an effect on the global reach of movies, We use number of release regions per movie as a proxy for global reach. Share of movies with \>5 regions increased post-2020.
 
 ```{r}
 # Plot: Average Number of Release Regions by COVID Period
+akas_count <- akas |>
+  filter(!is.na(region)) |>  # Exclude original (\N)
+  group_by(titleId) |>
+  summarise(num_regions = n_distinct(region, na.rm = TRUE))
+
+movies_clean <- movies_clean |>
+  left_join(akas_count, by = c("tconst" = "titleId")) |>
+  mutate(num_regions = if_else(is.na(num_regions), 0L, num_regions))
+
 global_reach_plot <- movies_clean |>
+  mutate(period = factor(period,
+                         levels = c("Pre-COVID", "During COVID", "Post-COVID"))) |>
   group_by(period) |>
-  summarise(avg_regions = mean(num_regions, na.rm = TRUE)) |>
+  summarise(avg_regions = mean(num_regions, na.rm = TRUE), .groups = "drop") |>
   ggplot(aes(x = period, y = avg_regions, group = 1)) +
-  geom_line(color = "#2ca02c", size = 1.5) +
+  geom_line(color = "#2ca02c", linewidth = 1.5) +
   geom_point(color = "#2ca02c", size = 3) +
   labs(
     title = "Average Number of Release Regions per Movie by COVID Period",
-    subtitle = "Higher values suggest increased globalization via streaming",
     x = "Period",
     y = "Average Regions"
   ) +
-  theme_minimal()
+  theme_minimal(base_size = 12) +
+  theme(plot.title.position = "plot")
 
-ggplotly(global_reach_plot)
+global_reach_plot
 ```
+It is interesting to note that even though theatres were closed down, the number of regions movies spread to rose significantly, probably due to the increased popularity of global streaming platforms.
 
-### How Far Did Movies Travel?
-
-Average number of release regions per movie:
-
--   During COVID: \~10.5 regions
-
--   Post-COVID: \~10.2 regions
-
--   Pre-COVID: \~9.6 regions
-
-At first glance it looks like globalization slowed, but the opposite is true for blockbuster and mid-tier films. The slight dip in the overall average is driven by an explosion of hyper-local, micro-budget movies that rarely leave their home country.
+At first glance it looks like globalization slowed, but the opposite could be true for blockbuster and mid-tier films. The slight dip in the overall average could be driven by an explosion of hyper-local, micro-budget movies that rarely leave their home country.
 
 Meanwhile, any film with decent marketing muscle now routinely lands in 20–50+ territories thanks to Netflix, Prime, Disney+, etc. In short: the ceiling got much higher even if the floor stayed low.
 
-### Genre Convergence Across Countries
-
-Top genres per period show if preferences are converging (e.g., action/drama dominating globally).
+Finally, we try to understand the change in Genre preferences during and after pandemic, if the pandemic had any effect on it.
 
 ```{r}
-# Plot: Top 5 Genres by COVID Period - No extra packages
-genre_converge_plot <- movies_clean |>
+top_genres <- movies_clean |>
   unnest(genres_list) |>
   filter(!is.na(genres_list)) |>
-  group_by(period, genres_list) |>
-  summarise(count = n(), .groups = "drop") |>
+  count(genres_list, sort = TRUE) |>
+  slice_head(n = 8) |>
+  pull(genres_list)
+
+# 2. Genre *shares* by period (normalize within each period)
+genre_flow_prop <- movies_clean |>
+  filter(!is.na(period)) |>
+  unnest(genres_list) |>
+  filter(genres_list %in% top_genres) |>
+  count(period, genres_list, name = "n") |>
   group_by(period) |>
-  slice_max(count, n = 5) |>
+  mutate(
+    share = n / sum(n)
+  ) |>
   ungroup() |>
-  ggplot(aes(x = reorder(genres_list, count), y = count)) +  # Reorder by count (works per facet with free scales)
-  geom_col(fill = "#666666") +  # Neutral gray
-  facet_wrap(~period, scales = "free") +   # free_x and free_y = independent reorder + no shared scale issues
-  coord_flip() +
-  labs(
-    title = "Top 5 Genres by COVID Period",
-    subtitle = "Shows if genres like action/drama are converging in popularity",
-    x = "Genre",
-    y = "Count"
-  ) +
-  theme_minimal()
-
-ggplotly(genre_converge_plot)
-```
-
-Across all three periods, the podium stays remarkably stable:
-
-1.  Drama (forever champion)
-
-2.  Comedy
-
-3.  Thriller
-
-4.  Documentary
-
-5.  Horror / Action / Romance (trading places depending on the year)
-
-There’s no dramatic convergence toward a single global taste. People still reach for the stories that speak to them locally, but the same handful of genres dominate everywhere proof that some human appetites are truly universal.
-
-## Cross-Country Comparisons
-
-### Hollywood Films in India vs. Western Markets
-
-Hollywood Films in India vs. Western Markets
-
-```{r}
-hollywood_data <- movies_clean |>
-  filter(is_hollywood) |>
-  group_by(period) |>
-  summarise(
-    prop_india = mean(has_india, na.rm = TRUE),
-    n_movies = n(),
-    .groups = "drop"
+  mutate(
+    period = factor(period,
+                    levels = c("Pre-COVID", "During COVID", "Post-COVID")),
+    genres_list = fct_reorder(genres_list, n, .fun = sum, .desc = TRUE)
   )
 
-if (nrow(hollywood_data) == 0 || all(is.na(hollywood_data$prop_india))) {
-  cat("No Hollywood movies found with current definition. Try redefining 'is_hollywood' using US release region.\n")
-} else {
-  hollywood_india_plot <- hollywood_data |>
-    ggplot(aes(x = period, y = prop_india)) +
-    geom_line(color = "#d62728", size = 1.5, group = 1) +
-    geom_point(color = "#d62728", size = 4) +
-    labs(
-      title = "Proportion of Hollywood Movies Released in India by COVID Period",
-      subtitle = paste("Based on", sum(movies_clean$is_hollywood), "Hollywood films • Indicates growing international visibility via streaming"),
-      x = "Period",
-      y = "Proportion Released in India"
-    ) +
-    scale_y_continuous(labels = scales::percent_format()) +
-    theme_minimal(base_size = 14)
-
-  ggplotly(hollywood_india_plot)
-}
+# 3. Alluvial using shares (each column = 100%)
+ggplot(genre_flow_prop,
+       aes(x = period,
+           stratum  = genres_list,
+           alluvium = genres_list,
+           y = share,
+           fill = genres_list)) +
+  geom_flow(alpha = 0.8, knot.pos = 0.4) +
+  geom_stratum(width = 0.2, colour = "grey30") +
+  geom_text(stat = "stratum",
+            aes(label = after_stat(stratum)),
+            size = 3) +
+  scale_fill_brewer(palette = "Set2", name = "Genre") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "How Genre Mix Shifted Across COVID Periods",
+    x = "COVID Period",
+    y = "Share of Movies"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title.position = "plot",
+    axis.text.y  = element_blank(),
+    axis.ticks.y = element_blank()
+  )
 ```
 
-### Hollywood goes crazy
-
-![Mind Blown](https://media.giphy.com/media/UvWllmm27ZaNbRpv2n/giphy.gif){width="500px" fig-align="center"}
-
-The pandemic was a stress test for the entire film industry and it passed with flying colors, albeit with a few scars.
-
-Theatrical releases took a historic hit, but audiences never stopped watching, they simply migrated online.
-
-Engagement metrics have stabilized, global distribution reach for commercial films has permanently expanded, and the fundamental things audiences love (drama, laughs, thrills) haven’t changed one bit.
-
-Cinema didn’t die in 2020. It moved house, grew up, and went properly global.
+It is interesting to note that despite the chaos of COVID, the genre mix stayed remarkably stable: Drama, Comedy, Action, etc. kept almost the same share before, during, and after the pandemic. What did shift, however, was a noticeable rise in Thrillers and Documentaries (also notable that True-Crime Documentaries gained popularity during the Pandemic).
+In other words, the pandemic changed where movies were released and how audiences engaged with them, but not what kinds of stories the industry continued to produce.

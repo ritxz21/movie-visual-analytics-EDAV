@@ -1,180 +1,45 @@
 # Data
 
 ## Description
+Our Dataset is the IMDb Non-Commercial Datasets (IMDb Datasets Page): a publicly available collection maintained by IMDb, a subsidiary of Amazon. These datasets are updated daily and distributed as compressed tab-separated value files (.tsv.gz). Each file represents a different aspect of the IMDb database, including:
+
+- title.basics.tsv.gz: title IDs, release years, genres, runtime
+
+- title.ratings.tsv.gz: IMDb user ratings and vote counts
+
+- title.akas.tsv.gz: international title names and release regions
+
+- title.principals.tsv.gz: information about cast and crew 
+
+IMDb compiles this information from user submissions, production companies, distributors, and verified industry sources. User-generated ratings are continuously updated as viewers submit them on the IMDb platform. [link: https://datasets.imdbws.com/]
 
 ## Missing value analysis
-
 ```{r}
-install.packages("janitor")
+knitr::include_graphics("missingValue1.jpeg")
 ```
 
-```{r}
-install.packages('R.utils')
-```
+- IDs, titles, and adult flag: completely filled, no issues.
+
+- Release year: missing for ~108k movies, so we drop them (we need the year for decades and COVID periods).
+
+- Runtime: missing for ~267k movies, we later remove anything missing or under 10 minutes.
+
+- Genres: missing for ~78k movies, we keep these (they just get skipped in genre analysis).
+
+- Ratings and votes: both missing for ~393k movies (no ratings yet), so we drop them entirely.
 
 ```{r}
-install.packages('skimr')
+knitr::include_graphics("missingValue2.jpeg")
 ```
 
-```{r}
-library(tidyverse)
-library(data.table)
-library(lubridate)
-library(janitor)
-library(stringr)
-library(scales)
-library(glue)
-library(readr)
-library(forcats)
-library(plotly)
-library(R.utils)
-library(skimr)
-```
+Our cleaning steps: We handled missing data by removing
 
-```{r}
-download_imdb <- TRUE
-imdb_dir <- "data/imdb"
-dir.create(imdb_dir, recursive = TRUE, showWarnings = FALSE)
+- Movies without a release year
 
-imdb_base <- "https://datasets.imdbws.com"
+- Movies with no ratings or votes
 
-files <- c(
-"title.basics.tsv.gz",
-"title.ratings.tsv.gz",
-"title.akas.tsv.gz"
-)
-if(download_imdb){
-for(f in files){
-url <- file.path(imdb_base, f)
-dest <- file.path(imdb_dir, f)
-if(!file.exists(dest)){
-message("Downloading ", f)
-download.file(url, dest, mode = "wb")
-} else {
-message(f, " already exists; skipping download.")
-}
-}
-}
+- Movies missing runtime or with runtime < 10 minutes
 
-```
+- Movies with fewer than 50 votes (cuts out super-noisy ones)
 
-```{r}
-basics <- fread(
-  file.path(imdb_dir, "title.basics.tsv.gz"),
-  na.strings = "\\N",
-  sep = "\t",
-  quote = "",
-  showProgress = FALSE
-)
-
-ratings <- fread(
-  file.path(imdb_dir, "title.ratings.tsv.gz"),
-  na.strings = "\\N",
-  sep = "\t",
-  quote = "",
-  showProgress = FALSE
-)
-
-akas <- fread(
-  file.path(imdb_dir, "title.akas.tsv.gz"),
-  na.strings = "\\N",
-  sep = "\t",
-  quote = "",
-  showProgress = FALSE
-)
-
-```
-
-```{r}
-glimpse(basics)
-glimpse(ratings)
-glimpse(akas)
-
-```
-
-Keep only movies (titleType == "movie" and isAdult == 0).
-
-Split genres into list columns.
-
-Convert years to numeric and create release_decade.
-
-Join IMDb ratings.
-
-```{r}
-movies <- basics |>
-  filter(titleType == "movie") |>
-  mutate(
-    startYear = as.integer(startYear),
-    endYear = as.integer(endYear),
-    runtimeMinutes = as.integer(runtimeMinutes),
-    isAdult = as.integer(isAdult)
-  ) |>
-  select(
-    tconst, primaryTitle, originalTitle,
-    startYear, runtimeMinutes, genres, isAdult
-  ) |>
-  filter(isAdult == 0)
-
-```
-
-Join Ratings
-
-```{r}
-movies <- movies |>
-left_join(ratings, by = c("tconst" = "tconst")) |>
-rename(imdb_rating = averageRating, imdb_votes = numVotes)
-```
-
-Parse genres into List
-
-```{r}
-movies <- movies |>
-  mutate(
-    genres_list = if_else(
-      is.na(genres),
-      list(NA_character_),
-      str_split(genres, ",\\s*")  
-    ),
-    release_decade = case_when(
-      !is.na(startYear) ~ paste0(floor(startYear/10) * 10, "s"),
-      TRUE ~ NA_character_
-    )
-  )
-```
-
-Inspect missing data
-
-```{r}
-missing_summary <- movies |> 
-  summarise(across(everything(), ~sum(is.na(.)))) |> 
-  pivot_longer(everything(), names_to = "column", values_to = "missing")
-
-missing_summary
-
-```
-
-Handling Missing Values
-
-```{r}
-movies_clean <- movies |>
-  # Remove movies missing release year (very small fraction)
-  filter(!is.na(startYear)) |>
-  # Remove movies with no ratings (not useful for analysis)
-  filter(!is.na(imdb_rating), !is.na(imdb_votes)) |>
-  # Remove movies with runtime 0 or unrealistic (< 10 min)
-  filter(!is.na(runtimeMinutes), runtimeMinutes >= 10) |>
-  # Keep only movies with at least 50 votes (reduces noise)
-  filter(imdb_votes >= 50)
-```
-
-```{r}
-# ---- Final Cleaned Dataset Summary ----
-
-skimr::skim(movies_clean)
-
-clean_missing_summary <- movies_clean |> 
-  summarise(across(everything(), ~sum(is.na(.)))) |> 
-  pivot_longer(everything(), names_to = "column", values_to = "missing")
-
-clean_missing_summary
-```
+The result is a smaller but solid dataset of real, rated films, perfect for trustworthy insights on quality, audience trends, and global reach.

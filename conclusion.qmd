@@ -1,52 +1,21 @@
 # Conclusion
 
-![What's the end verdict](https://media.giphy.com/media/l0HlRnAWXxn0MhKLK/giphy.gif){width="500px" fig-align="center"}
+![](https://media.giphy.com/media/l0HlRnAWXxn0MhKLK/giphy.gif){width="500px" fig-align="center"}
 
-## The Big Wins (And a Couple of Plot Holes)
+Our exploration highlights several key insights:
 
-### Audience Comeback:
+(1) the pandemic significantly changed how movies were produced, released, and rated, but the types of stories told remained surprisingly stable, with the dominant genres (Drama, Comedy, Action) maintaining nearly identical shares before, during, and after COVID. 
 
-Pre-COVID averages reached \~7,500 votes per movie, reflecting strong interest.
+(2) Audience engagement declined sharply during the pandemic and did not fully recover, as seen in lower vote counts, reflecting a more fragmented attention landscape. 
 
-During the pandemic, this fell to \~4,500 as theaters closed and releases slowed.
+(3) The geography of film production shifted—India rose into the top three producing regions while Great Britain dropped out. 
 
-Post-COVID levels have stabilized around \~4,200, a modest decline from the peak, but still indicative of sustained viewer involvement.
+(4) Despite theater closures, the global reach of movies actually increased post-2020, driven by streaming platforms enabling films to release in more regions. 
 
-Audiences remain committed, perhaps more discerning after years of abundant streaming options.
+(5) Thriller and Documentary genres, gained noticeable momentum during COVID. 
 
-### Production Rebound:
-
-Pre-COVID was the golden era with 150,000+ releases.
-
-The pandemic reduced this to \~20,000, a stark reminder of the disruption.
-
-Post-COVID figures are rebounding to \~30,000 and climbing, bolstered by streaming platforms that provided new pathways for films to reach viewers.
-
-### Ratings Around the World:
-
-Films released in India average \~6.5, compared to \~5.8 in the US.\
-This gap highlights varying market dynamics, the US absorbs a broader range of titles, including many lower-rated ones, while Indian releases often feature high-profile selections met with enthusiastic support.
-
-### Globalization Glow-Up:
-
-The average number of release regions per movie shows a slight overall dip post-COVID (from \~10.5 to \~9.6), largely due to a surge in localized, niche productions. \
-However, mainstream films now enjoy far wider distribution, thanks to streaming services that have effectively dissolved traditional barriers.
-
-### Genres:
-
-Drama consistently leads across all periods, followed closely by Comedy and Thriller. Preferences have remained remarkably steady, no major shifts toward action dominance or horror surges. This continuity underscores the enduring appeal of certain storytelling archetypes.
-
-## The Final Verdict
-
-The COVID-19 pandemic tested the resilience of cinema like never before, closing theaters and halting productions worldwide. \
-Yet the response was swift and innovative: streaming platforms absorbed delayed projects, audiences adapted seamlessly, and distribution became more inclusive than ever.
-
-What we see today is a leaner industry in terms of traditional theatrical volume, but one with expanded global reach, greater flexibility, and a proven ability to connect people through stories, no matter the circumstances.
-
-The future of film looks bright, more cross-border collaborations, hybrid release models, and audiences eager for the next great experience. Cinema hasn't just survived, it has evolved into a truly worldwide medium.
-
-Thank you for exploring this journey through the data.
+Our analysis is limited by IMDb’s inherent biases, such as inconsistent metadata, uneven rating counts, and survivorship effects. Future work could incorporate streaming data, box-office numbers, or review text analysis to provide a richer understanding of how film production and consumption are evolving.
 
 ### Thank you
 
-![Movie End Credits](https://media.giphy.com/media/26ufnwz3wDUli7GU0/giphy.gif){width="500px" fig-align="center"}
+![](https://media.giphy.com/media/26ufnwz3wDUli7GU0/giphy.gif){width="500px" fig-align="center"}

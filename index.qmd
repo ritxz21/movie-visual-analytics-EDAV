@@ -2,10 +2,8 @@
 
 This project analyzes IMDB movie data downloaded directly from the public dataset.
 
-We explore:
-  - Trends over time 
-  - Ratings and popularity
-  - Genre patterns
-  - How runtime relates to rating
-  
+Over the past few years, the movie world has changed a lot, streaming services took off, and then COVID turned everything upside down. People started watching films in new ways, and movies began reaching audiences across the globe like never before.
+
+This project dives into IMDb data on theatrical and feature films to uncover what’s really happening. It explores how ratings have shifted over the decades, how audience engagement changed before, during, and after the pandemic, whether genre tastes are getting more similar worldwide, and how far films now travel to different countries. Overall, it highlights the big trends like the massive boost in global reach thanks to streaming, while showing that local preferences still hold strong.
+
 Navigate using the sidebar to see the full analysis.
